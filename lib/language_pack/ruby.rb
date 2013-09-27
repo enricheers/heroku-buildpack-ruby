@@ -3,14 +3,10 @@ require "digest/md5"
 require "rubygems"
 require "language_pack"
 require "language_pack/base"
-require "language_pack/bundler_lockfile"
 require "language_pack/ruby_version"
 
 # base Ruby Language Pack. This is for any base ruby app.
 class LanguagePack::Ruby < LanguagePack::Base
-  include LanguagePack::BundlerLockfile
-  extend LanguagePack::BundlerLockfile::ClassMethods
-
   NAME                 = "ruby"
   BUILDPACK_VERSION    = "v80"
   LIBYAML_VERSION      = "0.1.4"
@@ -30,6 +26,31 @@ class LanguagePack::Ruby < LanguagePack::Base
     instrument "ruby.use" do
       File.exist?("Gemfile")
     end
+  end
+
+  def self.gemfile_lock?
+    File.exist?('Gemfile') && File.exist?('Gemfile.lock')
+  end
+
+  def self.bundler
+    puts "== calling bundler method"
+    @bundler ||= LanguagePack::Helpers::BundlerWrapper.new
+  end
+
+  def bundler
+    self.class.bundler
+  end
+
+  def self.bundle
+    bundler.lockfile_parser
+  end
+
+  def bundle
+    self.class.bundle
+  end
+
+  def bundler_path
+    bundler.bundler_path
   end
 
   def self.gem_version(name)
@@ -145,14 +166,20 @@ private
   def ruby_version
     instrument 'ruby.ruby_version' do
       return @ruby_version if @ruby_version
+      puts "== Checking New App"
       new_app           = !File.exist?("vendor/heroku")
+      puts "== new_app: #{new_app}"
       last_version_file = "buildpack_ruby_version"
       last_version      = nil
+      puts "== READING META DATA"
       last_version      = @metadata.read(last_version_file).chomp if @metadata.exists?(last_version_file)
 
-      @ruby_version = LanguagePack::RubyVersion.new(bundler_path, {
+      puts "== last_version: #{last_version}"
+      @ruby_version = LanguagePack::RubyVersion.new(bundler,
         is_new:       new_app,
-        last_version: last_version})
+        last_version: last_version)
+      puts "== DONE FINDING RUBY VERSION"
+      @ruby_version
     end
   end
 
