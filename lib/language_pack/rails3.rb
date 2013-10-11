@@ -56,33 +56,59 @@ private
 
   # runs the tasks for the Rails 3.1 asset pipeline
   def run_assets_precompile_rake_task
-    instrument "rails3.run_assets_precompile_rake_task" do
-      log("assets_precompile") do
+    instrument 'rails3.run_assets_precompile_rake_task' do
+      log 'assets_precompile' do
         setup_database_url_env
-        return true unless rake_task_defined?("assets:precompile")
-
-        topic("Preparing app for Rails asset pipeline")
-        if File.exists?("public/assets/manifest.yml")
-          puts "Detected manifest.yml, assuming assets were compiled locally"
-          return true
-        end
-
-        ENV["RAILS_GROUPS"] ||= "assets"
-        ENV["RAILS_ENV"]    ||= "production"
-
-        puts "Running: rake assets:precompile"
-        require 'benchmark'
-        time = Benchmark.realtime { pipe("env PATH=$PATH:bin bundle exec rake assets:precompile 2>&1") }
-
-        if $?.success?
-          log "assets_precompile", :status => "success"
-          puts "Asset precompilation completed (#{"%.2f" % time}s)"
+        case
+        when not(rake_task_defined? 'assets:precompile')
+        when File.exists?('public/assets/manifest.yml')
+          puts 'Detected manifest.yml, assuming assets were compiled locally'
+        when cache.unchanged?('app/assets', 'vendor/assets')
+          puts 'Assets are unchanged, loading from cache'
+          cache.load 'public/assets'
         else
-          log "assets_precompile", :status => "failure"
-          error "Precompiling assets failed."
+          topic 'Preparing app for Rails asset pipeline'
+          FileUtils.mkdir_p 'public'
+          cache.load 'public/assets'
+
+          ENV['RAILS_GROUPS'] ||= 'assets'
+          ENV['RAILS_ENV']    ||= 'production'
+
+          puts 'Running: rake assets:precompile'
+          require 'benchmark'
+          time = Benchmark.realtime { pipe 'env PATH=$PATH:bin bundle exec rake assets:precompile 2>&1' }
+
+          if $?.success?
+            log 'assets_precompile', status: 'success'
+            puts "Asset precompilation completed (#{"%.2f" % time}s)"
+            speed_up_assets_precompilation
+          else
+            log 'assets_precompile', status: 'failure'
+            error 'Precompiling assets failed.'
+          end
         end
       end
     end
+  end
+
+  def speed_up_assets_precompilation
+    # If 'turbo-sprockets-rails3' gem is available,
+    # run 'assets:clean_expired' and cache assets if task was successful.
+    if gem_is_bundled? 'turbo-sprockets-rails3'
+      log 'assets_clean_expired' do
+        run 'env PATH=$PATH:bin bundle exec rake assets:clean_expired 2>&1'
+        if $?.success?
+          log 'assets_clean_expired', status: 'success'
+          cache.store 'public/assets'
+        else
+          log 'assets_clean_expired', status: 'failure'
+          cache.clear 'public/assets'
+        end
+      end
+    else
+      cache.store 'public/assets'
+    end
+    cache.store 'app/assets'
   end
 
   # setup the database url as an environment variable

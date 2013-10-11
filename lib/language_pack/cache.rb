@@ -42,4 +42,12 @@ class LanguagePack::Cache
   def exists?(path)
     File.exists?(@cache_base + path)
   end
+
+  # check if the cache contents are unchanged
+  # @param [String] relative path of the cache contents
+  def unchanged?(*directories)
+    directories.all? do |directory|
+      `diff -rN #{directory} #{@cache_base + directory} 2>&1`.empty?
+    end
+  end
 end
